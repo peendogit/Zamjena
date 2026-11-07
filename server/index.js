@@ -12,7 +12,7 @@ import { containsSale } from './filter.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
-const PORT = process.env.PORT || 3010;
+const PORT = process.env.PORT || 3047;
 const SECRET = process.env.JWT_SECRET || 'promijeni-ovo-u-tajnu';
 const UPLOADS = path.join(__dirname, 'uploads');
 const DIST = path.join(__dirname, '..', 'client', 'dist');

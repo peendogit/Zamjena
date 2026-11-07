@@ -15,7 +15,7 @@ Oglasnik po uzoru na OLX, ali **samo za zamjenu** – roba za robu, usluga za us
 - Svaki oglas čeka ručno odobrenje admina
 
 ## Stack
-Node.js + Express, SQLite (better-sqlite3), React + Vite. Port **3010**.
+Node.js + Express, SQLite (better-sqlite3), React + Vite. Port **3047**.
 
 ## Prva instalacija (Contabo, Termius)
 ```bash
@@ -42,7 +42,7 @@ server {
     server_name zamjena.ba www.zamjena.ba;
     client_max_body_size 80M;
     location / {
-        proxy_pass http://localhost:3010;
+        proxy_pass http://localhost:3047;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
     }
