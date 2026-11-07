@@ -12,7 +12,7 @@ import UserPage from './pages/UserPage';
 import Saved from './pages/Saved';
 import Matches from './pages/Matches';
 
-function Header({ user, logout, notes }) {
+function Header({ user, logout, notes, setUser }) {
   const [open, setOpen] = useState(false);
   const close = () => setOpen(false);
   return (
@@ -37,6 +37,7 @@ function Header({ user, logout, notes }) {
       </div>
       {open && (
         <nav className="menu" onClick={close}>
+          <DemoSwitch user={user} setUser={u => { setUser(u); close(); }} compact />
           <Link to="/oglasi">Svi oglasi</Link>
           {user ? (
             <>
@@ -182,6 +183,39 @@ function MyListings({ user }) {
   );
 }
 
+// Test nalozi na klik (samo kad je server pokrenut sa DEMO=1)
+let demoCache = null;
+function DemoSwitch({ user, setUser, compact }) {
+  const nav = useNavigate();
+  const [list, setList] = useState(demoCache || []);
+  useEffect(() => {
+    if (demoCache) return;
+    api('/api/demo-users').then(d => { demoCache = d; setList(d); }).catch(() => {});
+  }, []);
+  if (!list.length) return null;
+  async function login(id) {
+    try {
+      const r = await api('/api/demo-login', { method: 'POST', body: { id } });
+      localStorage.setItem('token', r.token);
+      localStorage.setItem('user', JSON.stringify(r.user));
+      setUser(r.user);
+      if (!compact) nav('/');
+    } catch (x) { alert(x.message); }
+  }
+  return (
+    <div className={`demo ${compact ? 'demo-compact' : ''}`} onClick={e => e.stopPropagation()}>
+      <small>🧪 {compact ? 'Prebaci na test nalog' : 'Brza prijava (test nalozi)'}</small>
+      <div className="demo-btns">
+        {list.map(u => (
+          <button key={u.id} type="button" className={user?.id === u.id ? 'on' : ''} onClick={() => login(u.id)}>
+            {u.name.replace(/ \(test.*\)/, '')}{u.is_admin ? ' 👑' : ''}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function AuthForm({ type, setUser }) {
   const nav = useNavigate();
   const [params] = useSearchParams();
@@ -204,6 +238,7 @@ function AuthForm({ type, setUser }) {
   return (
     <div className="container narrow">
       <h1>{isLogin ? 'Prijava' : 'Registracija'}</h1>
+      {isLogin && <DemoSwitch setUser={setUser} />}
       <form className="form" onSubmit={submit}>
         {!isLogin && <label>Ime<input name="name" required /></label>}
         <label>Email<input name="email" type="email" required /></label>
@@ -259,7 +294,7 @@ export default function App() {
 
   return (
     <>
-      <Header user={user} logout={logout} notes={notes} />
+      <Header user={user} logout={logout} notes={notes} setUser={setUser} />
       <main>
         <Routes>
           <Route path="/" element={<Home />} />

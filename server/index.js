@@ -21,6 +21,23 @@ fs.mkdirSync(UPLOADS, { recursive: true });
 
 const SALE_MSG = 'Koja je cijena, paše li keš? Ne hvala, samo zamjena! Uklonite cijene i riječi o prodaji.';
 
+// ---------- TEST NAČIN (DEMO=1) ----------
+// Tri test naloga sa prijavom na klik. Bez DEMO=1 su blokirani i dugmad ne postoje.
+const DEMO = process.env.DEMO === '1';
+const DEMO_USERS = [
+  { name: 'Marko (test admin)', email: 'marko@demo.zamjena', city: 'Bijeljina', is_admin: 1 },
+  { name: 'Ana (test)', email: 'ana@demo.zamjena', city: 'Tuzla', is_admin: 0 },
+  { name: 'Sejo (test)', email: 'sejo@demo.zamjena', city: 'Sarajevo', is_admin: 0 }
+];
+{
+  const ins = db.prepare('INSERT OR IGNORE INTO users (name, email, city, password, is_admin) VALUES (?, ?, ?, ?, ?)');
+  for (const u of DEMO_USERS) {
+    ins.run(u.name, u.email, u.city, bcrypt.hashSync(Math.random().toString(36) + Date.now(), 8), u.is_admin);
+  }
+  db.prepare(`UPDATE users SET blocked = ? WHERE email LIKE '%@demo.zamjena'`).run(DEMO ? 0 : 1);
+  console.log(DEMO ? 'TEST NAČIN UKLJUČEN: prijava na klik za test naloge' : 'Test način isključen');
+}
+
 app.use(cors());
 app.use(express.json());
 app.use('/uploads', express.static(UPLOADS, { maxAge: '30d' }));
@@ -104,6 +121,7 @@ app.post('/api/register', (req, res) => {
   const { name, email, phone, city, password } = req.body;
   if (!name || !email || !password || password.length < 6)
     return res.status(400).json({ error: 'Popunite ime, email i lozinku (najmanje 6 znakova)' });
+  if (/@demo\.zamjena$/i.test(email.trim())) return res.status(400).json({ error: 'Taj email nije dozvoljen' });
   try {
     const hash = bcrypt.hashSync(password, 10);
     const r = db.prepare('INSERT INTO users (name, email, phone, city, password) VALUES (?, ?, ?, ?, ?)')
@@ -122,6 +140,19 @@ app.post('/api/login', (req, res) => {
   if (!u || !bcrypt.compareSync(password || '', u.password))
     return res.status(400).json({ error: 'Pogrešan email ili lozinka' });
   if (u.blocked) return res.status(403).json({ error: 'Vaš nalog je blokiran' });
+  const token = jwt.sign({ id: u.id, name: u.name }, SECRET, { expiresIn: '30d' });
+  res.json({ token, user: { id: u.id, name: u.name, city: u.city, is_admin: u.is_admin } });
+});
+
+app.get('/api/demo-users', (req, res) => {
+  if (!DEMO) return res.json([]);
+  res.json(db.prepare(`SELECT id, name, city, is_admin FROM users WHERE email LIKE '%@demo.zamjena' ORDER BY id`).all());
+});
+
+app.post('/api/demo-login', (req, res) => {
+  if (!DEMO) return res.status(404).json({ error: 'Test način nije uključen' });
+  const u = db.prepare(`SELECT * FROM users WHERE id = ? AND email LIKE '%@demo.zamjena'`).get(req.body.id);
+  if (!u) return res.status(404).json({ error: 'Test nalog ne postoji' });
   const token = jwt.sign({ id: u.id, name: u.name }, SECRET, { expiresIn: '30d' });
   res.json({ token, user: { id: u.id, name: u.name, city: u.city, is_admin: u.is_admin } });
 });

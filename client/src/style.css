@@ -290,3 +290,13 @@ section { margin-bottom: 8px; }
 .hcard .thumb { height: 100px; border-radius: 8px; color: var(--yellow); background-color: var(--blue); font-size: 26px; font-weight: 800; }
 .hcard b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hcard small { color: var(--muted); }
+
+/* test nalozi */
+.demo { background: #FFF8DB; border: 2px dashed var(--yellow); border-radius: 12px; padding: 12px; margin-bottom: 14px; }
+.demo small { font-weight: 700; color: #6B5200; display: block; margin-bottom: 8px; }
+.demo-btns { display: flex; gap: 8px; }
+.demo-btns button { flex: 1; padding: 12px 6px; border: none; border-radius: 8px; background: var(--blue); color: #fff; font-weight: 700; font-size: 15px; cursor: pointer; font-family: inherit; }
+.demo-btns button.on { background: var(--yellow); color: var(--blue); }
+.demo-compact { margin: 6px 10px 8px; padding: 10px; background: #ffffff12; border-color: #FFC30088; }
+.demo-compact small { color: var(--yellow); }
+.demo-compact .demo-btns button { padding: 8px 4px; font-size: 13px; }
