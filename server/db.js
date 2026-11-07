@@ -40,6 +40,46 @@ CREATE TABLE IF NOT EXISTS listings (
 );
 CREATE INDEX IF NOT EXISTS idx_listings_status ON listings(status);
 CREATE INDEX IF NOT EXISTS idx_listings_cat ON listings(category_id);
+
+-- FAZA 2
+CREATE TABLE IF NOT EXISTS offers (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  listing_id INTEGER NOT NULL REFERENCES listings(id) ON DELETE CASCADE,
+  from_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  to_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  offered_ids TEXT NOT NULL DEFAULT '[]',
+  message TEXT,
+  status TEXT NOT NULL DEFAULT 'na_cekanju',
+  seen INTEGER DEFAULT 0,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_offers_to ON offers(to_user_id, status);
+CREATE INDEX IF NOT EXISTS idx_offers_from ON offers(from_user_id);
+
+CREATE TABLE IF NOT EXISTS conversations (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  listing_id INTEGER REFERENCES listings(id) ON DELETE SET NULL,
+  user_a INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  user_b INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE (listing_id, user_a, user_b)
+);
+CREATE TABLE IF NOT EXISTS messages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  conversation_id INTEGER NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+  sender_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  body TEXT NOT NULL,
+  is_system INTEGER DEFAULT 0,
+  read_at TEXT,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_messages_conv ON messages(conversation_id);
+
+CREATE TABLE IF NOT EXISTS banned_words (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  word TEXT UNIQUE NOT NULL
+);
 `);
 
 const count = db.prepare('SELECT COUNT(*) AS c FROM categories').get().c;

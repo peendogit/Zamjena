@@ -62,6 +62,15 @@ cd ../server && npm install
 pm2 restart zamjena
 ```
 
-## Sljedeće faze
-- **Faza 2:** dugme "Ponudi zamjenu", poruke, admin uređivanje zabranjenih riječi
+## Faza 2
+- **Ponudi zamjenu**: biraš jedan ili više svojih aktivnih oglasa + poruka
+- Vlasnik **prihvata / odbija**, pošiljalac može **povući** ponudu
+- Prihvaćena zamjena: oba oglasa postaju **Zamijenjeno**, ostale ponude na njima se zatvaraju
+- **Poruke** između korisnika (osvježavaju se same), značke za nove poruke i ponude
+- **Uređivanje oglasa** (nakon izmjene ide ponovo na odobrenje)
+- **Profil** i **promjena lozinke**
+- Admin: **zabranjene riječi** koje sam dodaješ (pored ugrađenih)
+
+## Sljedeće
 - **Faza 3:** ocjene nakon zamjene, prijave oglasa, sačuvani oglasi
+- Pametno spajanje (sajt sam pronađe ko kome odgovara)
