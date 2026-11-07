@@ -46,6 +46,43 @@ export function Card({ l }) {
   );
 }
 
+// Prikaz ocjene: ★★★★☆ 4.2 (12)
+export function Stars({ value, count, small }) {
+  if (!count) return <span className={`stars none ${small ? 'sm' : ''}`}>Još nema ocjena</span>;
+  const full = Math.round(value);
+  return (
+    <span className={`stars ${small ? 'sm' : ''}`}>
+      <span className="st-on">{'★'.repeat(full)}</span><span className="st-off">{'★'.repeat(5 - full)}</span>
+      <b>{Number(value).toFixed(1)}</b>{count != null && <em>({count})</em>}
+    </span>
+  );
+}
+
+// Biranje zvjezdica
+export function StarPicker({ value, onChange }) {
+  return (
+    <div className="star-pick">
+      {[1, 2, 3, 4, 5].map(n => (
+        <button type="button" key={n} className={n <= value ? 'on' : ''} onClick={() => onChange(n)} aria-label={`${n} zvjezdica`}>★</button>
+      ))}
+    </div>
+  );
+}
+
+export function Modal({ title, onClose, children }) {
+  return (
+    <div className="modal-bg" onClick={onClose}>
+      <div className="modal" onClick={e => e.stopPropagation()}>
+        <div className="modal-head">
+          <h2>{title}</h2>
+          <button className="x" onClick={onClose} aria-label="Zatvori">×</button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
 export const STATUS = {
   na_cekanju: '⏳ Na čekanju',
   aktivan: '✅ Aktivan',

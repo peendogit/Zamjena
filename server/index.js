@@ -39,8 +39,18 @@ function readToken(req) {
 function auth(req, res, next) {
   const u = readToken(req);
   if (!u) return res.status(401).json({ error: 'Prijava je istekla, prijavite se ponovo' });
+  const row = db.prepare('SELECT blocked FROM users WHERE id = ?').get(u.id);
+  if (!row) return res.status(401).json({ error: 'Korisnik ne postoji' });
+  if (row.blocked) return res.status(403).json({ error: 'Vaš nalog je blokiran' });
   req.user = u;
   next();
+}
+
+// Ocjena i broj zamjena korisnika
+function userStats(id) {
+  const r = db.prepare('SELECT ROUND(AVG(stars), 1) AS avg, COUNT(*) AS count FROM ratings WHERE to_user_id = ?').get(id);
+  const swaps = db.prepare(`SELECT COUNT(*) AS c FROM offers WHERE status = 'prihvacena' AND (from_user_id = ? OR to_user_id = ?)`).get(id, id).c;
+  return { rating: r.avg, rating_count: r.count, swaps };
 }
 const isAdmin = id => !!db.prepare('SELECT is_admin FROM users WHERE id = ?').get(id)?.is_admin;
 function admin(req, res, next) {
@@ -110,6 +120,7 @@ app.post('/api/login', (req, res) => {
   const u = db.prepare('SELECT * FROM users WHERE email = ?').get((email || '').trim().toLowerCase());
   if (!u || !bcrypt.compareSync(password || '', u.password))
     return res.status(400).json({ error: 'Pogrešan email ili lozinka' });
+  if (u.blocked) return res.status(403).json({ error: 'Vaš nalog je blokiran' });
   const token = jwt.sign({ id: u.id, name: u.name }, SECRET, { expiresIn: '30d' });
   res.json({ token, user: { id: u.id, name: u.name, city: u.city, is_admin: u.is_admin } });
 });
@@ -117,7 +128,7 @@ app.post('/api/login', (req, res) => {
 app.get('/api/me', auth, (req, res) => {
   const u = db.prepare('SELECT id, name, email, phone, city, is_admin, created_at FROM users WHERE id = ?').get(req.user.id);
   if (!u) return res.status(404).json({ error: 'Korisnik ne postoji' });
-  res.json(u);
+  res.json({ ...u, ...userStats(u.id) });
 });
 
 app.put('/api/me', auth, (req, res) => {
@@ -163,7 +174,7 @@ app.get('/api/listings', (req, res) => {
              FROM listings l
              JOIN categories c ON c.id = l.category_id
              JOIN users u ON u.id = l.user_id
-             WHERE l.status = 'aktivan'`;
+             WHERE l.status = 'aktivan' AND u.blocked = 0`;
   const p = [];
   if (q) {
     sql += ' AND (l.title LIKE ? OR l.description LIKE ? OR l.wanted LIKE ?)';
@@ -185,12 +196,14 @@ app.get('/api/listings/:id', (req, res) => {
     JOIN users u ON u.id = l.user_id
     WHERE l.id = ?`).get(req.params.id);
   if (!l) return res.status(404).json({ error: 'Oglas ne postoji' });
+  const u = readToken(req);
   // Neodobrene i odbijene oglase vidi samo vlasnik i admin
   if (l.status === 'na_cekanju' || l.status === 'odbijen') {
-    const u = readToken(req);
     if (!u || (u.id !== l.user_id && !isAdmin(u.id))) return res.status(404).json({ error: 'Oglas ne postoji' });
   }
-  res.json(parse(l));
+  const saved = u ? !!db.prepare('SELECT 1 FROM saved WHERE user_id = ? AND listing_id = ?').get(u.id, l.id) : false;
+  const reported = u ? !!db.prepare('SELECT 1 FROM reports WHERE user_id = ? AND listing_id = ?').get(u.id, l.id) : false;
+  res.json({ ...parse(l), owner: userStats(l.user_id), saved, reported });
 });
 
 app.get('/api/my-listings', auth, (req, res) => {
@@ -294,7 +307,8 @@ app.post('/api/listings/:id/offers', auth, (req, res) => {
   res.json({ id: Number(r.lastInsertRowid), conversation_id: conv.id, message: 'Ponuda je poslana!' });
 });
 
-function offerRows(where, param) {
+function offerRows(where, param, me) {
+  const rated = db.prepare('SELECT stars FROM ratings WHERE offer_id = ? AND from_user_id = ?');
   const rows = db.prepare(`
     SELECT o.*, l.title AS listing_title, l.images AS listing_images, l.status AS listing_status,
            uf.name AS from_name, ut.name AS to_name
@@ -307,14 +321,15 @@ function offerRows(where, param) {
   return rows.map(o => ({
     ...o,
     conversation_id: getConversation(o.listing_id, o.from_user_id, o.to_user_id).id,
+    my_rating: o.status === 'prihvacena' ? (rated.get(o.id, me)?.stars ?? null) : null,
     listing_images: JSON.parse(o.listing_images || '[]'),
     offered: JSON.parse(o.offered_ids).map(id => parse(getL.get(id))).filter(Boolean)
   }));
 }
 
 app.get('/api/offers', auth, (req, res) => {
-  const received = offerRows('o.to_user_id = ?', req.user.id);
-  const sent = offerRows('o.from_user_id = ?', req.user.id);
+  const received = offerRows('o.to_user_id = ?', req.user.id, req.user.id);
+  const sent = offerRows('o.from_user_id = ?', req.user.id, req.user.id);
   db.prepare('UPDATE offers SET seen = 1 WHERE to_user_id = ? AND seen = 0').run(req.user.id);
   res.json({ received, sent });
 });
@@ -426,7 +441,128 @@ app.post('/api/conversations/:id/messages', auth, (req, res) => {
   res.json({ ok: true });
 });
 
+// ---------- OCJENE ----------
+app.post('/api/offers/:id/rate', auth, (req, res) => {
+  const o = db.prepare('SELECT * FROM offers WHERE id = ?').get(req.params.id);
+  if (!o || o.status !== 'prihvacena') return res.status(400).json({ error: 'Ocijeniti se može samo obavljena zamjena' });
+  if (o.from_user_id !== req.user.id && o.to_user_id !== req.user.id) return res.status(403).json({ error: 'Niste učesnik ove zamjene' });
+  const stars = Number(req.body.stars);
+  if (!Number.isInteger(stars) || stars < 1 || stars > 5) return res.status(400).json({ error: 'Izaberite od 1 do 5 zvjezdica' });
+  const other = o.from_user_id === req.user.id ? o.to_user_id : o.from_user_id;
+  const comment = (req.body.comment || '').trim().slice(0, 500) || null;
+  try {
+    db.prepare('INSERT INTO ratings (offer_id, from_user_id, to_user_id, stars, comment) VALUES (?, ?, ?, ?, ?)')
+      .run(o.id, req.user.id, other, stars, comment);
+  } catch {
+    return res.status(400).json({ error: 'Već ste ocijenili ovu zamjenu' });
+  }
+  res.json({ ok: true, message: 'Hvala na ocjeni!' });
+});
+
+// ---------- JAVNI PROFIL ----------
+app.get('/api/users/:id', (req, res) => {
+  const u = db.prepare('SELECT id, name, city, created_at, blocked FROM users WHERE id = ?').get(req.params.id);
+  if (!u || u.blocked) return res.status(404).json({ error: 'Korisnik ne postoji' });
+  const listings = db.prepare(`SELECT l.*, c.name AS category_name FROM listings l JOIN categories c ON c.id = l.category_id
+    WHERE l.user_id = ? AND l.status = 'aktivan' ORDER BY l.created_at DESC, l.id DESC`).all(u.id).map(parse);
+  const ratings = db.prepare(`SELECT r.stars, r.comment, r.created_at, u.name AS from_name, u.id AS from_id
+    FROM ratings r JOIN users u ON u.id = r.from_user_id WHERE r.to_user_id = ? ORDER BY r.id DESC LIMIT 50`).all(u.id);
+  const { blocked, ...pub } = u;
+  res.json({ ...pub, ...userStats(u.id), listings, ratings });
+});
+
+// ---------- SAČUVANI OGLASI ----------
+app.post('/api/listings/:id/save', auth, (req, res) => {
+  const l = db.prepare('SELECT id FROM listings WHERE id = ?').get(req.params.id);
+  if (!l) return res.status(404).json({ error: 'Oglas ne postoji' });
+  const had = db.prepare('DELETE FROM saved WHERE user_id = ? AND listing_id = ?').run(req.user.id, l.id).changes;
+  if (!had) db.prepare('INSERT INTO saved (user_id, listing_id) VALUES (?, ?)').run(req.user.id, l.id);
+  res.json({ saved: !had });
+});
+
+app.get('/api/saved', auth, (req, res) => {
+  res.json(db.prepare(`SELECT l.*, c.name AS category_name FROM saved s
+    JOIN listings l ON l.id = s.listing_id JOIN categories c ON c.id = l.category_id
+    WHERE s.user_id = ? AND l.status IN ('aktivan', 'zamijenjeno') ORDER BY s.created_at DESC`).all(req.user.id).map(parse));
+});
+
+// ---------- PRIJAVE OGLASA ----------
+const REPORT_REASONS = ['Prodaja ili cijena', 'Lažan ili prevaran oglas', 'Neprimjeren sadržaj', 'Pogrešna kategorija', 'Drugo'];
+
+app.post('/api/listings/:id/report', auth, (req, res) => {
+  const l = db.prepare('SELECT id, user_id FROM listings WHERE id = ?').get(req.params.id);
+  if (!l) return res.status(404).json({ error: 'Oglas ne postoji' });
+  if (l.user_id === req.user.id) return res.status(400).json({ error: 'Ne možete prijaviti svoj oglas' });
+  const reason = REPORT_REASONS.includes(req.body.reason) ? req.body.reason : null;
+  if (!reason) return res.status(400).json({ error: 'Izaberite razlog prijave' });
+  try {
+    db.prepare('INSERT INTO reports (listing_id, user_id, reason, details) VALUES (?, ?, ?, ?)')
+      .run(l.id, req.user.id, reason, (req.body.details || '').trim().slice(0, 500) || null);
+  } catch {
+    return res.status(400).json({ error: 'Već ste prijavili ovaj oglas' });
+  }
+  res.json({ ok: true, message: 'Hvala, prijava je poslana adminu.' });
+});
+
 // ---------- ADMIN ----------
+app.get('/api/admin/stats', auth, admin, (req, res) => {
+  const c = sql => db.prepare(sql).get().c;
+  res.json({
+    pending: c(`SELECT COUNT(*) AS c FROM listings WHERE status = 'na_cekanju'`),
+    reports: c(`SELECT COUNT(*) AS c FROM reports WHERE status = 'otvorena'`),
+    active: c(`SELECT COUNT(*) AS c FROM listings WHERE status = 'aktivan'`),
+    swaps: c(`SELECT COUNT(*) AS c FROM offers WHERE status = 'prihvacena'`),
+    users: c('SELECT COUNT(*) AS c FROM users')
+  });
+});
+
+app.get('/api/admin/reports', auth, admin, (req, res) => {
+  res.json(db.prepare(`
+    SELECT l.id AS listing_id, l.title, l.images, l.status AS listing_status, l.user_id AS owner_id,
+           o.name AS owner_name, o.email AS owner_email, o.blocked AS owner_blocked,
+           COUNT(r.id) AS total,
+           GROUP_CONCAT(r.reason || COALESCE(': ' || r.details, ''), ' | ') AS reasons,
+           MAX(r.created_at) AS last_at
+    FROM reports r
+    JOIN listings l ON l.id = r.listing_id
+    JOIN users o ON o.id = l.user_id
+    WHERE r.status = 'otvorena'
+    GROUP BY l.id ORDER BY total DESC, last_at DESC`).all().map(r => ({ ...r, images: JSON.parse(r.images || '[]') })));
+});
+
+// akcija: ukloni (oglas odbijen), odbaci (prijave zatvorene, oglas ostaje)
+app.post('/api/admin/reports/:listingId/:action', auth, admin, (req, res) => {
+  const { listingId, action } = req.params;
+  if (action === 'ukloni') {
+    db.prepare(`UPDATE listings SET status = 'odbijen', reject_reason = ? WHERE id = ?`)
+      .run(req.body?.reason || 'Uklonjeno nakon prijave', listingId);
+  } else if (action !== 'odbaci') {
+    return res.status(400).json({ error: 'Nepoznata akcija' });
+  }
+  db.prepare(`UPDATE reports SET status = 'rijesena' WHERE listing_id = ?`).run(listingId);
+  res.json({ ok: true });
+});
+
+app.post('/api/admin/users/:id/block', auth, admin, (req, res) => {
+  const id = Number(req.params.id);
+  if (id === req.user.id) return res.status(400).json({ error: 'Ne možete blokirati sebe' });
+  const block = req.body?.block === false ? 0 : 1;
+  db.prepare('UPDATE users SET blocked = ? WHERE id = ?').run(block, id);
+  if (block) {
+    // zatvori njegove ponude na čekanju
+    db.prepare(`UPDATE offers SET status = 'zatvorena', updated_at = ? WHERE status = 'na_cekanju' AND (from_user_id = ? OR to_user_id = ?)`)
+      .run(now(), id, id);
+  }
+  res.json({ ok: true, blocked: !!block });
+});
+
+app.get('/api/admin/users', auth, admin, (req, res) => {
+  const q = (req.query.q || '').trim();
+  res.json(db.prepare(`SELECT id, name, email, city, blocked, is_admin, created_at,
+      (SELECT COUNT(*) FROM listings WHERE user_id = users.id) AS listings
+    FROM users WHERE (? = '' OR name LIKE ? OR email LIKE ?) ORDER BY id DESC LIMIT 100`).all(q, `%${q}%`, `%${q}%`));
+});
+
 app.get('/api/admin/pending', auth, admin, (req, res) => {
   res.json(db.prepare(`SELECT l.*, u.name AS user_name, u.email AS user_email, c.name AS category_name
     FROM listings l JOIN users u ON u.id = l.user_id JOIN categories c ON c.id = l.category_id

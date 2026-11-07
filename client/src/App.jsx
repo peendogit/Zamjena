@@ -1,12 +1,15 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Routes, Route, Link, NavLink, Navigate, useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from './api';
-import { Logo, Card, SwapBadge, STATUS, MOTO } from './components';
+import { Logo, Card, STATUS, MOTO } from './components';
 import ListingForm from './pages/ListingForm';
 import ListingPage from './pages/ListingPage';
 import Offers from './pages/Offers';
 import { Inbox, Chat } from './pages/Messages';
 import Profile from './pages/Profile';
+import Admin from './pages/Admin';
+import UserPage from './pages/UserPage';
+import Saved from './pages/Saved';
 
 function Header({ user, logout, notes }) {
   const [open, setOpen] = useState(false);
@@ -36,7 +39,9 @@ function Header({ user, logout, notes }) {
               <Link to="/moji-oglasi">Moji oglasi</Link>
               <Link to="/ponude">Ponude zamjene {notes.offers > 0 && <span className="badge">{notes.offers}</span>}</Link>
               <Link to="/poruke">Poruke {notes.messages > 0 && <span className="badge">{notes.messages}</span>}</Link>
-              <Link to="/profil">Moj profil</Link>
+              <Link to="/sacuvani">♥ Sačuvani oglasi</Link>
+              <Link to={`/korisnik/${user.id}`}>Moj javni profil</Link>
+              <Link to="/profil">Postavke profila</Link>
               {user.is_admin ? <Link to="/admin">Admin</Link> : null}
               <button className="link" onClick={logout}>Odjava</button>
             </>
@@ -172,83 +177,6 @@ function MyListings({ user }) {
   );
 }
 
-function BannedWords() {
-  const [data, setData] = useState(null);
-  const [word, setWord] = useState('');
-  const [show, setShow] = useState(false);
-  const load = () => api('/api/admin/words').then(setData).catch(() => {});
-  useEffect(() => { load(); }, []);
-  async function add(e) {
-    e.preventDefault();
-    if (!word.trim()) return;
-    try { await api('/api/admin/words', { method: 'POST', body: { word } }); setWord(''); load(); }
-    catch (x) { alert(x.message); }
-  }
-  async function del(id) { await api(`/api/admin/words/${id}`, { method: 'DELETE' }); load(); }
-  if (!data) return null;
-  return (
-    <div className="words">
-      <h2>Zabranjene riječi</h2>
-      <p className="muted">Dodaj riječ ili izraz. Oglas koji ih sadrži neće proći. Jedna riječ hvata i sve oblike koji počinju njom (npr. "mijenjam za pare" ili "zlato").</p>
-      <form className="word-add" onSubmit={add}>
-        <input value={word} onChange={e => setWord(e.target.value)} placeholder="nova riječ ili izraz" />
-        <button className="btn-yellow">Dodaj</button>
-      </form>
-      <div className="chips">
-        {data.custom.length === 0 && <span className="muted">Još nema dodatih riječi.</span>}
-        {data.custom.map(w => (
-          <span key={w.id} className="chip">{w.word}<button onClick={() => del(w.id)} aria-label="Ukloni">×</button></span>
-        ))}
-      </div>
-      <button className="link-blue" onClick={() => setShow(!show)}>{show ? 'Sakrij' : 'Prikaži'} ugrađene riječi ({data.builtin.length})</button>
-      {show && <div className="chips">{data.builtin.map(w => <span key={w} className="chip gray">{w}</span>)}</div>}
-    </div>
-  );
-}
-
-function Admin({ user }) {
-  const [items, setItems] = useState(null);
-  const [err, setErr] = useState('');
-  const load = () => api('/api/admin/pending').then(setItems).catch(e => { setErr(e.message); setItems([]); });
-  useEffect(() => { if (user) load(); }, [user]);
-  if (!user) return <Navigate to="/prijava?next=/admin" />;
-  async function act(id, a) {
-    let body;
-    if (a === 'odbij') {
-      const reason = prompt('Razlog odbijanja (vidi ga korisnik):');
-      if (reason === null) return;
-      body = { reason };
-    }
-    await api(`/api/admin/listings/${id}/${a}`, { method: 'POST', body });
-    load();
-  }
-  return (
-    <div className="container">
-      <h1>Oglasi na čekanju {items?.length > 0 && <span className="badge big-badge">{items.length}</span>}</h1>
-      {err && <p className="err">{err}</p>}
-      {items === null ? <p>Učitavam...</p>
-        : items.length === 0 ? <p className="empty">Nema oglasa za pregled. 👍</p>
-        : items.map(l => (
-          <div key={l.id} className="admin-item">
-            {l.images[0] ? <img src={l.images[0]} alt="" /> : <div className="noimg small">Bez slike</div>}
-            <div className="admin-body">
-              <h3>{l.title}</h3>
-              <SwapBadge l={l} />
-              <p className="desc">{l.description}</p>
-              <small>{l.category_name} · {l.user_name} ({l.user_email}) · {l.city || '-'}</small>
-              <div className="admin-actions">
-                <button className="btn-yellow" onClick={() => act(l.id, 'odobri')}>Odobri</button>
-                <button className="btn-red" onClick={() => act(l.id, 'odbij')}>Odbij</button>
-                <Link to={`/oglas/${l.id}`}>Pogledaj</Link>
-              </div>
-            </div>
-          </div>
-        ))}
-      {!err && <BannedWords />}
-    </div>
-  );
-}
-
 function AuthForm({ type, setUser }) {
   const nav = useNavigate();
   const [params] = useSearchParams();
@@ -338,6 +266,8 @@ export default function App() {
           <Route path="/ponude" element={<Offers user={user} refresh={refresh} />} />
           <Route path="/poruke" element={<Inbox user={user} />} />
           <Route path="/poruke/:id" element={<Chat user={user} refresh={refresh} />} />
+          <Route path="/korisnik/:id" element={<UserPage />} />
+          <Route path="/sacuvani" element={<Saved user={user} />} />
           <Route path="/profil" element={<Profile user={user} setUser={setUser} />} />
           <Route path="/admin" element={<Admin user={user} />} />
           <Route path="/prijava" element={<AuthForm type="login" setUser={setUser} />} />

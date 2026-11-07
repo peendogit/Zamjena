@@ -1,7 +1,41 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api, timeAgo } from '../api';
-import { Thumb } from '../components';
+import { Thumb, Stars, Modal } from '../components';
+
+const REPORT_REASONS = ['Prodaja ili cijena', 'Lažan ili prevaran oglas', 'Neprimjeren sadržaj', 'Pogrešna kategorija', 'Drugo'];
+
+function ReportModal({ listing, onClose, onDone }) {
+  const [reason, setReason] = useState('');
+  const [details, setDetails] = useState('');
+  const [err, setErr] = useState('');
+  async function send() {
+    setErr('');
+    try {
+      const r = await api(`/api/listings/${listing.id}/report`, { method: 'POST', body: { reason, details } });
+      alert(r.message);
+      onDone();
+    } catch (x) { setErr(x.message); }
+  }
+  return (
+    <Modal title="Prijavi oglas" onClose={onClose}>
+      <p className="muted">Zašto prijavljuješ „{listing.title}”?</p>
+      <div className="pick-list">
+        {REPORT_REASONS.map(r => (
+          <label key={r} className={`pick ${reason === r ? 'on' : ''}`}>
+            <input type="radio" name="reason" checked={reason === r} onChange={() => setReason(r)} />
+            <span>{r}</span>
+          </label>
+        ))}
+      </div>
+      <label className="block">Detalji (nije obavezno)
+        <textarea rows={2} value={details} onChange={e => setDetails(e.target.value)} />
+      </label>
+      {err && <p className="err">{err}</p>}
+      <button className="btn-red big" disabled={!reason} onClick={send}>Pošalji prijavu</button>
+    </Modal>
+  );
+}
 
 function OfferModal({ listing, onClose }) {
   const nav = useNavigate();
@@ -79,6 +113,7 @@ export default function ListingPage({ user }) {
   const [l, setL] = useState(null);
   const [img, setImg] = useState(0);
   const [offering, setOffering] = useState(false);
+  const [reporting, setReporting] = useState(false);
 
   useEffect(() => { setImg(0); api(`/api/listings/${id}`).then(setL).catch(() => setL(false)); }, [id]);
 
@@ -94,6 +129,14 @@ export default function ListingPage({ user }) {
     try {
       const r = await api(`/api/listings/${l.id}/contact`, { method: 'POST' });
       nav(`/poruke/${r.conversation_id}`);
+    } catch (x) { alert(x.message); }
+  }
+
+  async function toggleSave() {
+    if (!user) return needLogin();
+    try {
+      const r = await api(`/api/listings/${l.id}/save`, { method: 'POST' });
+      setL({ ...l, saved: r.saved });
     } catch (x) { alert(x.message); }
   }
 
@@ -118,7 +161,15 @@ export default function ListingPage({ user }) {
           ) : <div className="noimg">Bez slike</div>}
         </div>
         <div>
-          <h1>{l.title}</h1>
+          <div className="title-row">
+            <h1>{l.title}</h1>
+            {!mine && (
+              <button className={`heart ${l.saved ? 'on' : ''}`} onClick={toggleSave}
+                title={l.saved ? 'Ukloni iz sačuvanih' : 'Sačuvaj oglas'} aria-label="Sačuvaj">
+                {l.saved ? '♥' : '♡'}
+              </button>
+            )}
+          </div>
           <div className="swapbox">
             {l.swap_mode === 'trazim'
               ? <><small>MIJENJA ZA</small><strong>{l.wanted}</strong></>
@@ -132,10 +183,14 @@ export default function ListingPage({ user }) {
           </p>
           <h3>Opis</h3>
           <p className="desc">{l.description}</p>
-          <div className="owner">
-            <strong>{l.user_name}</strong>
-            <small>{l.user_city || ''}</small>
-          </div>
+          <Link to={`/korisnik/${l.user_id}`} className="owner">
+            <div>
+              <strong>{l.user_name}</strong>
+              <small>{l.user_city ? ` · ${l.user_city}` : ''}</small>
+            </div>
+            <Stars value={l.owner?.rating} count={l.owner?.rating_count} small />
+            <small>{l.owner?.swaps || 0} obavljenih zamjena · Profil →</small>
+          </Link>
           {mine ? (
             l.status !== 'zamijenjeno' && <Link to={`/uredi-oglas/${l.id}`} className="btn-outline big">Uredi oglas</Link>
           ) : active && (
@@ -148,7 +203,15 @@ export default function ListingPage({ user }) {
           )}
         </div>
       </div>
+      {!mine && user && (
+        <p className="report-line">
+          {l.reported
+            ? <span className="muted">Prijavio si ovaj oglas.</span>
+            : <button className="link muted" onClick={() => setReporting(true)}>⚑ Prijavi oglas</button>}
+        </p>
+      )}
       {offering && <OfferModal listing={l} onClose={() => setOffering(false)} />}
+      {reporting && <ReportModal listing={l} onClose={() => setReporting(false)} onDone={() => { setReporting(false); setL({ ...l, reported: true }); }} />}
     </div>
   );
 }

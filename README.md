@@ -71,6 +71,13 @@ pm2 restart zamjena
 - **Profil** i **promjena lozinke**
 - Admin: **zabranjene riječi** koje sam dodaješ (pored ugrađenih)
 
+## Faza 3
+- **Ocjene** 1–5 zvjezdica + komentar, nakon prihvaćene zamjene (oba korisnika)
+- **Javni profil** korisnika: ocjena, broj zamjena, oglasi, recenzije
+- **Sačuvani oglasi** (♡ na oglasu)
+- **Prijava oglasa** sa razlogom
+- Admin kartice: Na čekanju, Prijave, Korisnici (blokiranje), Riječi + statistika
+
 ## Sljedeće
-- **Faza 3:** ocjene nakon zamjene, prijave oglasa, sačuvani oglasi
 - Pametno spajanje (sajt sam pronađe ko kome odgovara)
+- Lista želja s obavijestima

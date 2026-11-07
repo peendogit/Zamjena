@@ -80,7 +80,42 @@ CREATE TABLE IF NOT EXISTS banned_words (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   word TEXT UNIQUE NOT NULL
 );
+
+-- FAZA 3
+CREATE TABLE IF NOT EXISTS ratings (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  offer_id INTEGER NOT NULL REFERENCES offers(id) ON DELETE CASCADE,
+  from_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  to_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  stars INTEGER NOT NULL CHECK (stars BETWEEN 1 AND 5),
+  comment TEXT,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE (offer_id, from_user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_ratings_to ON ratings(to_user_id);
+
+CREATE TABLE IF NOT EXISTS saved (
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  listing_id INTEGER NOT NULL REFERENCES listings(id) ON DELETE CASCADE,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (user_id, listing_id)
+);
+
+CREATE TABLE IF NOT EXISTS reports (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  listing_id INTEGER NOT NULL REFERENCES listings(id) ON DELETE CASCADE,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  reason TEXT NOT NULL,
+  details TEXT,
+  status TEXT NOT NULL DEFAULT 'otvorena',
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE (listing_id, user_id)
+);
 `);
+
+// Kolone dodane naknadno (postojeće baze se same nadograde)
+const cols = db.prepare('PRAGMA table_info(users)').all().map(c => c.name);
+if (!cols.includes('blocked')) db.exec('ALTER TABLE users ADD COLUMN blocked INTEGER DEFAULT 0');
 
 const count = db.prepare('SELECT COUNT(*) AS c FROM categories').get().c;
 if (count === 0) {
