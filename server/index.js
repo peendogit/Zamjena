@@ -9,6 +9,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import db from './db.js';
 import { containsSale, EXACT, PREFIX } from './filter.js';
+import { score, MATCH_MIN } from './matcher.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -157,7 +158,9 @@ app.get('/api/notifications', auth, (req, res) => {
     JOIN conversations c ON c.id = m.conversation_id
     WHERE (c.user_a = ? OR c.user_b = ?) AND (m.sender_id IS NULL OR m.sender_id != ?) AND m.read_at IS NULL`).get(id, id, id).c;
   const offers = db.prepare(`SELECT COUNT(*) AS c FROM offers WHERE to_user_id = ? AND status = 'na_cekanju' AND seen = 0`).get(id).c;
-  res.json({ messages, offers });
+  const matches = db.prepare(`SELECT COUNT(*) AS c FROM match_notes n JOIN listings l ON l.id = n.listing_id
+    WHERE n.user_id = ? AND n.seen = 0 AND l.status = 'aktivan'`).get(id).c;
+  res.json({ messages, offers, matches });
 });
 
 // ---------- KATEGORIJE ----------
@@ -213,7 +216,16 @@ app.get('/api/my-listings', auth, (req, res) => {
     FROM listings l JOIN categories c ON c.id = l.category_id WHERE l.user_id = ?`;
   if (active) sql += ` AND l.status = 'aktivan'`;
   sql += ' ORDER BY l.created_at DESC, l.id DESC';
-  res.json(db.prepare(sql).all(req.user.id).map(parse));
+  let rows = db.prepare(sql).all(req.user.id).map(parse);
+  // ?for=ID: označi koji moji oglasi odgovaraju onome što taj oglas traži
+  if (req.query.for) {
+    const target = db.prepare('SELECT swap_mode, wanted FROM listings WHERE id = ?').get(req.query.for);
+    if (target?.swap_mode === 'trazim') {
+      rows = rows.map(l => ({ ...l, fits: score(target.wanted, l) >= MATCH_MIN }))
+        .sort((a, b) => b.fits - a.fits);
+    }
+  }
+  res.json(rows);
 });
 
 function validateListing(body) {
@@ -441,6 +453,138 @@ app.post('/api/conversations/:id/messages', auth, (req, res) => {
   res.json({ ok: true });
 });
 
+// ---------- PAMETNO SPAJANJE ----------
+const LISTING_COLS = `l.id, l.user_id, l.title, l.description, l.city, l.images, l.swap_mode, l.wanted, l.created_at, u.name AS user_name`;
+
+function activeOthers(userId) {
+  return db.prepare(`SELECT ${LISTING_COLS} FROM listings l JOIN users u ON u.id = l.user_id
+    WHERE l.status = 'aktivan' AND u.blocked = 0 AND l.user_id != ?
+    ORDER BY l.id DESC LIMIT 3000`).all(userId).map(parse);
+}
+const slim = l => ({ id: l.id, title: l.title, images: l.images, city: l.city, swap_mode: l.swap_mode, wanted: l.wanted, user_name: l.user_name, user_id: l.user_id });
+
+function computeMatches(userId) {
+  const mine = db.prepare(`SELECT ${LISTING_COLS} FROM listings l JOIN users u ON u.id = l.user_id
+    WHERE l.status = 'aktivan' AND l.user_id = ?`).all(userId).map(parse);
+  const wishes = db.prepare('SELECT * FROM wishes WHERE user_id = ? ORDER BY id DESC').all(userId);
+  const others = activeOthers(userId);
+
+  const perfect = [];
+  const forYou = new Map();     // njihov oglas -> najbolji pogodak
+  const wantYours = [];
+  const pairKey = new Set();
+
+  for (const m of mine) {
+    if (m.swap_mode !== 'trazim') continue;
+    for (const o of others) {
+      const s = score(m.wanted, o);
+      if (s < MATCH_MIN) continue;
+      if (o.swap_mode === 'trazim') {
+        const s2 = score(o.wanted, m);
+        if (s2 >= MATCH_MIN) {
+          perfect.push({ mine: slim(m), theirs: slim(o), score: (s + s2) / 2 });
+          pairKey.add(`${m.id}-${o.id}`);
+          continue;
+        }
+      }
+      const prev = forYou.get(o.id);
+      const val = s + (o.swap_mode === 'otvoren' ? 0.25 : 0);   // otvoren za ponude je bolja šansa
+      if (!prev || prev.rank < val) forYou.set(o.id, { theirs: slim(o), because: m.wanted, mine: slim(m), open: o.swap_mode === 'otvoren', rank: val });
+    }
+  }
+
+  // Neko traži ono što ja imam
+  for (const o of others) {
+    if (o.swap_mode !== 'trazim') continue;
+    let best = null;
+    for (const m of mine) {
+      if (pairKey.has(`${m.id}-${o.id}`)) continue;
+      const s = score(o.wanted, m);
+      if (s >= MATCH_MIN && (!best || s > best.s)) best = { s, m };
+    }
+    if (best) wantYours.push({ mine: slim(best.m), theirs: slim(o), score: best.s });
+  }
+
+  const wishResults = wishes.map(w => ({
+    ...w,
+    listings: others
+      .map(o => ({ o, s: score(w.text, o) }))
+      .filter(x => x.s >= MATCH_MIN)
+      .sort((a, b) => b.s - a.s || b.o.id - a.o.id)
+      .slice(0, 12)
+      .map(x => slim(x.o))
+  }));
+
+  return {
+    perfect: perfect.sort((a, b) => b.score - a.score).slice(0, 30),
+    forYou: [...forYou.values()].sort((a, b) => b.rank - a.rank).slice(0, 30).map(({ rank, ...r }) => r),
+    wantYours: wantYours.sort((a, b) => b.score - a.score).slice(0, 30),
+    wishes: wishResults,
+    has_wants: mine.some(m => m.swap_mode === 'trazim'),
+    has_listings: mine.length > 0
+  };
+}
+
+// Kad oglas postane aktivan: javi svima kojima odgovara
+function notifyMatches(listingId) {
+  const l = parse(db.prepare(`SELECT ${LISTING_COLS} FROM listings l JOIN users u ON u.id = l.user_id WHERE l.id = ?`).get(listingId));
+  if (!l) return;
+  const ins = db.prepare('INSERT OR IGNORE INTO match_notes (user_id, listing_id, kind, text) VALUES (?, ?, ?, ?)');
+  const tx = db.transaction(() => {
+    // 1) nečija lista želja
+    for (const w of db.prepare(`SELECT w.* FROM wishes w JOIN users u ON u.id = w.user_id WHERE w.user_id != ? AND u.blocked = 0`).all(l.user_id)) {
+      if (score(w.text, l) >= MATCH_MIN) ins.run(w.user_id, l.id, 'zelja', `Odgovara tvojoj želji „${w.text}”`);
+    }
+    // 2) nečiji oglas koji traži baš ovo
+    for (const o of db.prepare(`SELECT ${LISTING_COLS} FROM listings l JOIN users u ON u.id = l.user_id
+        WHERE l.status = 'aktivan' AND l.swap_mode = 'trazim' AND l.user_id != ? AND u.blocked = 0`).all(l.user_id)) {
+      if (score(o.wanted, l) >= MATCH_MIN) ins.run(o.user_id, l.id, 'trazis', `Ima ono što tražiš za „${o.title}”: ${o.wanted}`);
+    }
+    // 3) novi oglas traži nešto što drugi imaju -> javi vlasnicima
+    if (l.swap_mode === 'trazim') {
+      const notified = new Set();
+      for (const o of activeOthers(l.user_id)) {
+        if (notified.has(o.user_id)) continue;
+        if (score(l.wanted, o) >= MATCH_MIN) {
+          ins.run(o.user_id, l.id, 'traze_tvoje', `Neko traži tvoj oglas „${o.title}” i nudi: ${l.title}`);
+          notified.add(o.user_id);
+        }
+      }
+    }
+  });
+  try { tx(); } catch (e) { console.error('notifyMatches', e); }
+}
+
+app.get('/api/matches', auth, (req, res) => {
+  const result = computeMatches(req.user.id);
+  const notes = db.prepare(`SELECT n.*, l.title AS listing_title, l.images AS listing_images, l.status AS listing_status
+    FROM match_notes n JOIN listings l ON l.id = n.listing_id
+    WHERE n.user_id = ? AND l.status = 'aktivan' ORDER BY n.id DESC LIMIT 20`).all(req.user.id)
+    .map(n => ({ ...n, listing_images: JSON.parse(n.listing_images || '[]') }));
+  db.prepare('UPDATE match_notes SET seen = 1 WHERE user_id = ? AND seen = 0').run(req.user.id);
+  res.json({ ...result, notes });
+});
+
+app.get('/api/wishes', auth, (req, res) => {
+  res.json(db.prepare('SELECT * FROM wishes WHERE user_id = ? ORDER BY id DESC').all(req.user.id));
+});
+
+app.post('/api/wishes', auth, (req, res) => {
+  const text = (req.body.text || '').trim();
+  if (text.length < 2 || text.length > 80) return res.status(400).json({ error: 'Upišite šta tražite (2 do 80 znakova)' });
+  const n = db.prepare('SELECT COUNT(*) AS c FROM wishes WHERE user_id = ?').get(req.user.id).c;
+  if (n >= 20) return res.status(400).json({ error: 'Najviše 20 želja. Obrišite neku staru.' });
+  const dup = db.prepare('SELECT 1 FROM wishes WHERE user_id = ? AND LOWER(text) = LOWER(?)').get(req.user.id, text);
+  if (dup) return res.status(400).json({ error: 'Ta želja je već na listi' });
+  db.prepare('INSERT INTO wishes (user_id, text) VALUES (?, ?)').run(req.user.id, text);
+  res.json({ ok: true });
+});
+
+app.delete('/api/wishes/:id', auth, (req, res) => {
+  db.prepare('DELETE FROM wishes WHERE id = ? AND user_id = ?').run(req.params.id, req.user.id);
+  res.json({ ok: true });
+});
+
 // ---------- OCJENE ----------
 app.post('/api/offers/:id/rate', auth, (req, res) => {
   const o = db.prepare('SELECT * FROM offers WHERE id = ?').get(req.params.id);
@@ -575,6 +719,7 @@ app.post('/api/admin/listings/:id/:action', auth, admin, (req, res) => {
   const status = action === 'odobri' ? 'aktivan' : 'odbijen';
   db.prepare('UPDATE listings SET status = ?, reject_reason = ? WHERE id = ?')
     .run(status, action === 'odbij' ? (req.body?.reason || null) : null, req.params.id);
+  if (status === 'aktivan') notifyMatches(Number(req.params.id));
   res.json({ ok: true, status });
 });
 

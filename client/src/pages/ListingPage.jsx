@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api, timeAgo } from '../api';
 import { Thumb, Stars, Modal } from '../components';
 
@@ -37,15 +37,15 @@ function ReportModal({ listing, onClose, onDone }) {
   );
 }
 
-function OfferModal({ listing, onClose }) {
+function OfferModal({ listing, onClose, initial = [] }) {
   const nav = useNavigate();
   const [mine, setMine] = useState(null);
-  const [picked, setPicked] = useState([]);
+  const [picked, setPicked] = useState(initial);
   const [message, setMessage] = useState('');
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
 
-  useEffect(() => { api('/api/my-listings?active=1').then(setMine).catch(e => { setErr(e.message); setMine([]); }); }, []);
+  useEffect(() => { api(`/api/my-listings?active=1&for=${listing.id}`).then(setMine).catch(e => { setErr(e.message); setMine([]); }); }, []);
 
   const toggle = id => setPicked(p => (p.includes(id) ? p.filter(x => x !== id) : [...p, id]));
 
@@ -88,6 +88,7 @@ function OfferModal({ listing, onClose }) {
                     <input type="checkbox" checked={picked.includes(m.id)} onChange={() => toggle(m.id)} />
                     <Thumb src={m.images[0]} />
                     <span>{m.title}</span>
+                    {m.fits && <span className="tag tag-fit">✓ traži ovo</span>}
                   </label>
                 ))}
               </div>
@@ -114,8 +115,14 @@ export default function ListingPage({ user }) {
   const [img, setImg] = useState(0);
   const [offering, setOffering] = useState(false);
   const [reporting, setReporting] = useState(false);
+  const [params, setParams] = useSearchParams();
+  const preset = Number(params.get('ponudi')) || null;
 
   useEffect(() => { setImg(0); api(`/api/listings/${id}`).then(setL).catch(() => setL(false)); }, [id]);
+  // Dolazak sa stranice Pogodci (?ponudi=ID): odmah otvori ponudu sa izabranim oglasom
+  useEffect(() => {
+    if (preset && l && user && l.user_id !== user.id && l.status === 'aktivan') setOffering(true);
+  }, [preset, l?.id, user?.id]);
 
   if (l === null) return <div className="container">Učitavam...</div>;
   if (l === false) return <div className="container">Oglas ne postoji.</div>;
@@ -210,7 +217,10 @@ export default function ListingPage({ user }) {
             : <button className="link muted" onClick={() => setReporting(true)}>⚑ Prijavi oglas</button>}
         </p>
       )}
-      {offering && <OfferModal listing={l} onClose={() => setOffering(false)} />}
+      {offering && (
+        <OfferModal listing={l} initial={preset ? [preset] : []}
+          onClose={() => { setOffering(false); if (preset) setParams({}, { replace: true }); }} />
+      )}
       {reporting && <ReportModal listing={l} onClose={() => setReporting(false)} onDone={() => { setReporting(false); setL({ ...l, reported: true }); }} />}
     </div>
   );

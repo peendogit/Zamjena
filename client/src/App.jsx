@@ -10,6 +10,7 @@ import Profile from './pages/Profile';
 import Admin from './pages/Admin';
 import UserPage from './pages/UserPage';
 import Saved from './pages/Saved';
+import Matches from './pages/Matches';
 
 function Header({ user, logout, notes }) {
   const [open, setOpen] = useState(false);
@@ -20,6 +21,9 @@ function Header({ user, logout, notes }) {
       <div className="head-right">
         {user && (
           <>
+            <NavLink to="/pogodci" className="icon-link" title="Pogodci">
+              ✦{notes.matches > 0 && <span className="badge">{notes.matches}</span>}
+            </NavLink>
             <NavLink to="/ponude" className="icon-link" title="Ponude">
               ⇄{notes.offers > 0 && <span className="badge">{notes.offers}</span>}
             </NavLink>
@@ -37,6 +41,7 @@ function Header({ user, logout, notes }) {
           {user ? (
             <>
               <Link to="/moji-oglasi">Moji oglasi</Link>
+              <Link to="/pogodci">✦ Pogodci {notes.matches > 0 && <span className="badge">{notes.matches}</span>}</Link>
               <Link to="/ponude">Ponude zamjene {notes.offers > 0 && <span className="badge">{notes.offers}</span>}</Link>
               <Link to="/poruke">Poruke {notes.messages > 0 && <span className="badge">{notes.messages}</span>}</Link>
               <Link to="/sacuvani">♥ Sačuvani oglasi</Link>
@@ -225,7 +230,7 @@ export default function App() {
   const [user, setUser] = useState(() => {
     try { return JSON.parse(localStorage.getItem('user') || 'null'); } catch { return null; }
   });
-  const [notes, setNotes] = useState({ messages: 0, offers: 0 });
+  const [notes, setNotes] = useState({ messages: 0, offers: 0, matches: 0 });
 
   useEffect(() => {
     if (!localStorage.getItem('token')) return;
@@ -240,7 +245,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (!user) { setNotes({ messages: 0, offers: 0 }); return; }
+    if (!user) { setNotes({ messages: 0, offers: 0, matches: 0 }); return; }
     refresh();
     const t = setInterval(refresh, 30000);
     return () => clearInterval(t);
@@ -267,6 +272,7 @@ export default function App() {
           <Route path="/poruke" element={<Inbox user={user} />} />
           <Route path="/poruke/:id" element={<Chat user={user} refresh={refresh} />} />
           <Route path="/korisnik/:id" element={<UserPage />} />
+          <Route path="/pogodci" element={<Matches user={user} refresh={refresh} />} />
           <Route path="/sacuvani" element={<Saved user={user} />} />
           <Route path="/profil" element={<Profile user={user} setUser={setUser} />} />
           <Route path="/admin" element={<Admin user={user} />} />

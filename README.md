@@ -78,6 +78,11 @@ pm2 restart zamjena
 - **Prijava oglasa** sa razlogom
 - Admin kartice: Na čekanju, Prijave, Korisnici (blokiranje), Riječi + statistika
 
-## Sljedeće
-- Pametno spajanje (sajt sam pronađe ko kome odgovara)
-- Lista želja s obavijestima
+## Pametno spajanje (✦ Pogodci)
+- **Savršeni parovi**: ti imaš ono što on traži, on ima ono što ti tražiš
+- **Ima ono što tražiš** (oglasi otvoreni za ponude imaju prednost)
+- **Traže ono što ti imaš**
+- **Lista želja** (do 20): obavijest čim admin odobri oglas koji odgovara
+- Prepoznaje padeže (kosilica/kosilicu), kvačice i skraćenice (PS4 = Playstation 4, TV = televizor...)
+- U „Ponudi zamjenu” tvoji oglasi koji odgovaraju su označeni sa ✓
+- Algoritam: `server/matcher.js` (sinonimi se dodaju u `SYN`)

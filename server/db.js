@@ -113,6 +113,29 @@ CREATE TABLE IF NOT EXISTS reports (
 );
 `);
 
+// PAMETNO SPAJANJE
+db.exec(`
+CREATE TABLE IF NOT EXISTS wishes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  text TEXT NOT NULL,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_wishes_user ON wishes(user_id);
+
+CREATE TABLE IF NOT EXISTS match_notes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  listing_id INTEGER NOT NULL REFERENCES listings(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL,
+  text TEXT NOT NULL,
+  seen INTEGER DEFAULT 0,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE (user_id, listing_id, kind)
+);
+CREATE INDEX IF NOT EXISTS idx_notes_user ON match_notes(user_id, seen);
+`);
+
 // Kolone dodane naknadno (postojeće baze se same nadograde)
 const cols = db.prepare('PRAGMA table_info(users)').all().map(c => c.name);
 if (!cols.includes('blocked')) db.exec('ALTER TABLE users ADD COLUMN blocked INTEGER DEFAULT 0');
