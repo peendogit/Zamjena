@@ -4,6 +4,7 @@ import react from '@vitejs/plugin-react';
 export default defineConfig({
   plugins: [react()],
   server: {
+    fs: { allow: ['..'] }, // dozvoli ../shared (spisak gradova)
     proxy: {
       '/api': 'http://localhost:3047',
       '/uploads': 'http://localhost:3047'

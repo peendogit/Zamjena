@@ -78,6 +78,14 @@ pm2 restart zamjena
 - **Prijava oglasa** sa razlogom
 - Admin kartice: Na čekanju, Prijave, Korisnici (blokiranje), Riječi + statistika
 
+## Grad i udaljenost
+- Spisak 126 gradova/općina u BiH sa koordinatama: `shared/gradovi.js` (koriste ga server i sajt)
+- Pretraga: grad + „Samo taj grad / do 10, 25, 50, 100, 200 km”, sortirano od najbližeg
+- Dugme „📍 Blizu mene” (grad iz profila, do 25 km)
+- Na oglasima piše udaljenost od tvog grada (vazdušna linija)
+- Polje za grad nudi prijedloge, a „bijeljina” se sprema kao „Bijeljina”
+- Prepoznaje stare nazive (Bosanski Brod → Brod, Lukavica → Istočno Sarajevo...)
+
 ## Pametno spajanje (✦ Pogodci)
 - **Savršeni parovi**: ti imaš ono što on traži, on ima ono što ti tražiš
 - **Ima ono što tražiš** (oglasi otvoreni za ponude imaju prednost)

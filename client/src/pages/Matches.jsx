@@ -1,16 +1,18 @@
 import { useEffect, useState } from 'react';
 import { Link, Navigate } from 'react-router-dom';
 import { api, timeAgo } from '../api';
-import { Thumb } from '../components';
+import { Thumb, kmLabel } from '../components';
+import { cityDistance } from '../../../shared/gradovi.js';
 
-function Item({ l, label }) {
+function Item({ l, label, from }) {
+  const km = from && l.city ? cityDistance(from, l.city) : null;
   return (
     <Link to={`/oglas/${l.id}`} className="offer-item">
       <Thumb src={l.images[0]} />
       <span className="mi-text">
         {label && <small>{label}</small>}
         <b>{l.title}</b>
-        {l.user_name && <em>{l.user_name}{l.city ? ` · ${l.city}` : ''}</em>}
+        {l.user_name && <em>{l.user_name}{l.city ? ` · ${l.city}` : ''}{km != null ? ` · ${kmLabel(km)}` : ''}</em>}
       </span>
     </Link>
   );
@@ -23,7 +25,7 @@ function PairCard({ mine, theirs, note, perfect }) {
       <div className="offer-swap">
         <div className="offer-side"><Item l={mine} label="TVOJE" /></div>
         <div className="offer-arrow">⇄</div>
-        <div className="offer-side"><Item l={theirs} label="NJEGOVO" /></div>
+        <div className="offer-side"><Item l={theirs} label="NJEGOVO" from={mine.city} /></div>
       </div>
       <div className="offer-foot">
         <span />

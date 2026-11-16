@@ -300,3 +300,11 @@ section { margin-bottom: 8px; }
 .demo-compact { margin: 6px 10px 8px; padding: 10px; background: #ffffff12; border-color: #FFC30088; }
 .demo-compact small { color: var(--yellow); }
 .demo-compact .demo-btns button { padding: 8px 4px; font-size: 13px; }
+
+/* grad i udaljenost */
+.filters.loc { align-items: stretch; }
+.filters.loc input { flex: 1 1 160px; min-width: 0; }
+.filters.loc select:disabled { opacity: .5; }
+.filters.loc .btn-outline { padding: 8px 12px; white-space: nowrap; }
+.km { color: var(--blue3); font-weight: 700; }
+.meta b { color: var(--blue3); font-weight: 700; }

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { api } from '../api';
+import { CityInput } from '../components';
 
 export default function Profile({ user, setUser }) {
   const [me, setMe] = useState(null);
@@ -45,7 +46,7 @@ export default function Profile({ user, setUser }) {
         <label>Ime<input name="name" required defaultValue={me.name} /></label>
         <div className="two">
           <label>Telefon<input name="phone" type="tel" defaultValue={me.phone || ''} /></label>
-          <label>Grad<input name="city" defaultValue={me.city || ''} /></label>
+          <label>Grad<CityInput name="city" defaultValue={me.city || ''} /></label>
         </div>
         {err && <p className="err">{err}</p>}
         {msg && <p className="ok">{msg}</p>}

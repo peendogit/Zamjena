@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Navigate, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../api';
-import { MOTO } from '../components';
+import { MOTO, CityInput } from '../components';
 
 // Isti obrazac za novi oglas i za uređivanje (kad postoji :id)
 export default function ListingForm({ user }) {
@@ -83,7 +83,7 @@ export default function ListingForm({ user }) {
         </label>
         <div className="two">
           <label>Grad
-            <input name="city" defaultValue={l.city ?? user.city ?? ''} placeholder="npr. Bijeljina" />
+            <CityInput name="city" defaultValue={l.city ?? user.city ?? ''} />
           </label>
           <label>Stanje
             <select name="item_condition" defaultValue={l.item_condition || 'koristeno'}>

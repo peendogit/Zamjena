@@ -10,6 +10,7 @@ import { fileURLToPath } from 'url';
 import db from './db.js';
 import { containsSale, EXACT, PREFIX } from './filter.js';
 import { score, MATCH_MIN } from './matcher.js';
+import { findCity, distanceKm } from '../shared/gradovi.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -76,6 +77,9 @@ function admin(req, res, next) {
   next();
 }
 
+// "bijeljina" -> "Bijeljina"; nepoznato mjesto ostaje kako je upisano
+const cleanCity = c => { const f = findCity(c); return f ? f.name : (String(c || '').trim().slice(0, 60) || null); };
+
 const parse = l => (l ? { ...l, images: JSON.parse(l.images || '[]') } : l);
 const extraWords = () => db.prepare('SELECT word FROM banned_words').all().map(r => r.word);
 const now = () => new Date().toISOString().slice(0, 19).replace('T', ' ');
@@ -125,8 +129,8 @@ app.post('/api/register', (req, res) => {
   try {
     const hash = bcrypt.hashSync(password, 10);
     const r = db.prepare('INSERT INTO users (name, email, phone, city, password) VALUES (?, ?, ?, ?, ?)')
-      .run(name.trim(), email.trim().toLowerCase(), phone || null, city || null, hash);
-    const user = { id: Number(r.lastInsertRowid), name, city, is_admin: 0 };
+      .run(name.trim(), email.trim().toLowerCase(), phone || null, cleanCity(city), hash);
+    const user = { id: Number(r.lastInsertRowid), name, city: cleanCity(city), is_admin: 0 };
     const token = jwt.sign({ id: user.id, name }, SECRET, { expiresIn: '30d' });
     res.json({ token, user });
   } catch {
@@ -167,7 +171,7 @@ app.put('/api/me', auth, (req, res) => {
   const { name, phone, city } = req.body;
   if (!name?.trim()) return res.status(400).json({ error: 'Ime je obavezno' });
   db.prepare('UPDATE users SET name = ?, phone = ?, city = ? WHERE id = ?')
-    .run(name.trim(), phone || null, city || null, req.user.id);
+    .run(name.trim(), phone || null, cleanCity(city), req.user.id);
   res.json(db.prepare('SELECT id, name, email, phone, city, is_admin, created_at FROM users WHERE id = ?').get(req.user.id));
 });
 
@@ -215,10 +219,32 @@ app.get('/api/listings', (req, res) => {
     p.push(`%${q}%`, `%${q}%`, `%${q}%`);
   }
   if (category) { sql += ' AND c.slug = ?'; p.push(category); }
-  if (city) { sql += ' AND l.city LIKE ?'; p.push(`%${city}%`); }
   if (mode === 'trazim' || mode === 'otvoren') { sql += ' AND l.swap_mode = ?'; p.push(mode); }
-  sql += ' ORDER BY l.created_at DESC, l.id DESC LIMIT 100';
-  res.json(db.prepare(sql).all(...p).map(parse));
+
+  // Grad i udaljenost: radius=0 samo taj grad, radius=25 do 25 km (sortirano od najbližeg)
+  const radius = Math.max(0, Math.min(400, Number(req.query.radius) || 0));
+  const center = city ? findCity(city) : null;
+  if (city && !center) {
+    // grad nije na spisku: obična pretraga po tekstu
+    sql += ' AND l.city LIKE ?';
+    p.push(`%${city.trim()}%`);
+  }
+  sql += ` ORDER BY l.created_at DESC, l.id DESC LIMIT ${center ? 5000 : 100}`;
+  let rows = db.prepare(sql).all(...p).map(parse);
+
+  if (center) {
+    rows = rows
+      .map(l => ({ ...l, distance_km: distanceKm(center, findCity(l.city)) }))
+      .filter(l => l.distance_km !== null && l.distance_km <= radius);
+    if (radius > 0) rows.sort((a, b) => a.distance_km - b.distance_km || b.id - a.id);
+    rows = rows.slice(0, 100);
+  }
+  res.json(rows);
+});
+
+app.get('/api/cities/check', (req, res) => {
+  const c = findCity(req.query.q);
+  res.json(c ? { found: true, name: c.name } : { found: false });
 });
 
 app.get('/api/listings/:id', (req, res) => {
@@ -276,7 +302,7 @@ app.post('/api/listings', auth, upload.array('images', 8), async (req, res) => {
     const r = db.prepare(`INSERT INTO listings
       (user_id, category_id, title, description, city, item_condition, swap_mode, wanted, images)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .run(req.user.id, Number(category_id), title.trim(), description.trim(), city || null,
+      .run(req.user.id, Number(category_id), title.trim(), description.trim(), cleanCity(city),
            item_condition === 'novo' ? 'novo' : 'koristeno', mode,
            mode === 'trazim' ? wanted.trim() : null, JSON.stringify(images));
     res.json({ id: Number(r.lastInsertRowid), message: 'Oglas je poslan na odobrenje. Biće vidljiv čim ga admin pregleda.' });
@@ -306,7 +332,7 @@ app.put('/api/listings/:id', auth, upload.array('images', 8), async (req, res) =
     const mode = swap_mode === 'trazim' ? 'trazim' : 'otvoren';
     db.prepare(`UPDATE listings SET category_id = ?, title = ?, description = ?, city = ?, item_condition = ?,
       swap_mode = ?, wanted = ?, images = ?, status = 'na_cekanju', reject_reason = NULL WHERE id = ?`)
-      .run(Number(category_id), title.trim(), description.trim(), city || null,
+      .run(Number(category_id), title.trim(), description.trim(), cleanCity(city),
            item_condition === 'novo' ? 'novo' : 'koristeno', mode,
            mode === 'trazim' ? wanted.trim() : null, JSON.stringify(images), l.id);
     res.json({ id: l.id, message: 'Izmjene su sačuvane. Oglas ponovo čeka odobrenje.' });

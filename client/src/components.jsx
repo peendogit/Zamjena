@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import { timeAgo } from './api';
+import { IMENA_GRADOVA, cityDistance } from '../../shared/gradovi.js';
 
 export const MOTO = 'Koja je cijena, paše li keš? Ne hvala, samo zamjena.';
 
@@ -31,7 +32,24 @@ export function Thumb({ src, className = 'mini' }) {
     : <div className={`${className} mini-empty`}>⇄</div>;
 }
 
-export function Card({ l }) {
+// Lista prijedloga gradova (renderuje se jednom u App)
+export function CityList() {
+  return <datalist id="gradovi">{IMENA_GRADOVA.map(g => <option key={g} value={g} />)}</datalist>;
+}
+
+// Polje za grad sa prijedlozima; može se upisati i mjesto kojeg nema na spisku
+export function CityInput(props) {
+  return <input list="gradovi" autoComplete="off" placeholder="npr. Bijeljina" {...props} />;
+}
+
+// "12 km", "isti grad" ili null
+export function kmLabel(km) {
+  if (km == null) return null;
+  return km === 0 ? 'isti grad' : `~${km} km`;
+}
+
+export function Card({ l, from }) {
+  const km = l.distance_km ?? (from ? cityDistance(from, l.city) : null);
   return (
     <Link to={`/oglas/${l.id}`} className="card">
       <div className="thumb" style={l.images[0] ? { backgroundImage: `url(${l.images[0]})` } : {}}>
@@ -40,7 +58,9 @@ export function Card({ l }) {
       <div className="card-body">
         <h3>{l.title}</h3>
         <SwapBadge l={l} />
-        <small>{l.city || 'BiH'} · {timeAgo(l.created_at)}</small>
+        <small>
+          {l.city || 'BiH'}{km != null && <b className="km"> · {kmLabel(km)}</b>} · {timeAgo(l.created_at)}
+        </small>
       </div>
     </Link>
   );

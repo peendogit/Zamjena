@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Routes, Route, Link, NavLink, Navigate, useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from './api';
-import { Logo, Card, STATUS, MOTO } from './components';
+import { IMENA_GRADOVA } from '../../shared/gradovi.js';
+import { Logo, Card, STATUS, MOTO, CityInput, CityList } from './components';
 import ListingForm from './pages/ListingForm';
 import ListingPage from './pages/ListingPage';
 import Offers from './pages/Offers';
@@ -74,7 +75,7 @@ function SearchBar({ initial = '' }) {
   );
 }
 
-function Home() {
+function Home({ user }) {
   const [cats, setCats] = useState([]);
   const [latest, setLatest] = useState([]);
   useEffect(() => {
@@ -101,26 +102,39 @@ function Home() {
         <h2>Najnovije zamjene</h2>
         {latest.length === 0
           ? <p className="empty">Još nema oglasa. Budi prvi i <Link to="/novi-oglas">dodaj oglas</Link>!</p>
-          : <div className="grid">{latest.map(l => <Card key={l.id} l={l} />)}</div>}
+          : <div className="grid">{latest.map(l => <Card key={l.id} l={l} from={user?.city} />)}</div>}
       </div>
     </>
   );
 }
 
-function Listings() {
+const RADIUSI = [
+  ['0', 'Samo taj grad'], ['10', 'do 10 km'], ['25', 'do 25 km'], ['50', 'do 50 km'],
+  ['100', 'do 100 km'], ['200', 'do 200 km']
+];
+
+function Listings({ user }) {
   const [params, setParams] = useSearchParams();
   const [items, setItems] = useState(null);
   const [cats, setCats] = useState([]);
+  const [cityText, setCityText] = useState(params.get('city') || '');
   useEffect(() => { api('/api/categories').then(setCats).catch(() => {}); }, []);
+  useEffect(() => { setCityText(params.get('city') || ''); }, [params]);
   useEffect(() => {
     setItems(null);
     api(`/api/listings?${params.toString()}`).then(setItems).catch(() => setItems([]));
   }, [params]);
-  const set = (k, v) => {
+  const update = changes => {
     const p = new URLSearchParams(params);
-    v ? p.set(k, v) : p.delete(k);
+    for (const [k, v] of Object.entries(changes)) (v || v === 0) && v !== '' ? p.set(k, v) : p.delete(k);
+    if (!p.get('city')) p.delete('radius');
     setParams(p);
   };
+  const set = (k, v) => update({ [k]: v });
+  const city = params.get('city');
+  const radius = params.get('radius') || '0';
+  const applyCity = v => { if ((v || '') !== (city || '')) update({ city: v.trim(), radius: v.trim() ? radius : '' }); };
+
   return (
     <div className="container">
       <SearchBar key={params.get('q') || ''} initial={params.get('q') || ''} />
@@ -134,15 +148,36 @@ function Listings() {
           <option value="otvoren">Otvoren za ponude</option>
           <option value="trazim">Traži tačno nešto</option>
         </select>
-        <input placeholder="Grad" defaultValue={params.get('city') || ''}
-          onKeyDown={e => { if (e.key === 'Enter') set('city', e.target.value); }}
-          onBlur={e => set('city', e.target.value)} />
+      </div>
+      <div className="filters loc">
+        <CityInput value={cityText} placeholder="Grad (cijela BiH)"
+          onChange={e => {
+            setCityText(e.target.value);
+            // izabran grad sa liste prijedloga: primijeni odmah
+            if (IMENA_GRADOVA.includes(e.target.value)) applyCity(e.target.value);
+          }}
+          onKeyDown={e => { if (e.key === 'Enter') applyCity(e.target.value); }}
+          onBlur={e => applyCity(e.target.value)} />
+        <select value={radius} disabled={!city} onChange={e => set('radius', e.target.value === '0' ? '' : e.target.value)}>
+          {RADIUSI.map(([v, t]) => <option key={v} value={v}>{t}</option>)}
+        </select>
+        {city
+          ? <button className="btn-outline" onClick={() => update({ city: '', radius: '' })}>✕ Cijela BiH</button>
+          : user?.city && (
+            <button className="btn-outline" onClick={() => update({ city: user.city, radius: '25' })}>📍 Blizu mene</button>
+          )}
       </div>
       {items === null ? <p>Učitavam...</p>
-        : items.length === 0 ? <p className="empty">Nema oglasa za ovu pretragu.</p>
-        : <>
-            <p className="muted">{items.length} oglasa</p>
-            <div className="grid">{items.map(l => <Card key={l.id} l={l} />)}</div>
+        : items.length === 0 ? (
+          <p className="empty">
+            Nema oglasa za ovu pretragu.
+            {city && radius !== '200' && <> <button className="link-blue" onClick={() => set('radius', String(Math.min(200, Math.max(25, Number(radius) * 2))))}>Proširi udaljenost</button></>}
+          </p>
+        ) : <>
+            <p className="muted">
+              {items.length} oglasa{city ? (radius !== '0' ? ` do ${radius} km od mjesta ${city}, od najbližeg` : ` u mjestu ${city}`) : ''}
+            </p>
+            <div className="grid">{items.map(l => <Card key={l.id} l={l} from={city || user?.city} />)}</div>
           </>}
     </div>
   );
@@ -245,7 +280,7 @@ function AuthForm({ type, setUser }) {
         {!isLogin && (
           <div className="two">
             <label>Telefon<input name="phone" type="tel" /></label>
-            <label>Grad<input name="city" /></label>
+            <label>Grad<CityInput name="city" /></label>
           </div>
         )}
         <label>Lozinka<input name="password" type="password" required minLength={6} /></label>
@@ -295,10 +330,11 @@ export default function App() {
   return (
     <>
       <Header user={user} logout={logout} notes={notes} setUser={setUser} />
+      <CityList />
       <main>
         <Routes>
-          <Route path="/" element={<Home />} />
-          <Route path="/oglasi" element={<Listings />} />
+          <Route path="/" element={<Home user={user} />} />
+          <Route path="/oglasi" element={<Listings user={user} />} />
           <Route path="/oglas/:id" element={<ListingPage user={user} />} />
           <Route path="/novi-oglas" element={<ListingForm user={user} />} />
           <Route path="/uredi-oglas/:id" element={<ListingForm user={user} />} />

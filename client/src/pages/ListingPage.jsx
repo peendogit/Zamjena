@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api, timeAgo } from '../api';
-import { Thumb, Stars, Modal } from '../components';
+import { Thumb, Stars, Modal, kmLabel } from '../components';
+import { cityDistance } from '../../../shared/gradovi.js';
 
 const REPORT_REASONS = ['Prodaja ili cijena', 'Lažan ili prevaran oglas', 'Neprimjeren sadržaj', 'Pogrešna kategorija', 'Drugo'];
 
@@ -185,7 +186,7 @@ export default function ListingPage({ user }) {
           <p className="meta">
             <span>{l.category_name}</span>
             <span>{l.item_condition === 'novo' ? 'Novo' : 'Korišteno'}</span>
-            <span>{l.city || 'BiH'}</span>
+            <span>📍 {l.city || 'BiH'}{!mine && user?.city && cityDistance(user.city, l.city) != null && <b> · {kmLabel(cityDistance(user.city, l.city))} od tebe</b>}</span>
             <span>{timeAgo(l.created_at)}</span>
           </p>
           <h3>Opis</h3>
